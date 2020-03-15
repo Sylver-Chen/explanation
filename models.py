@@ -13,7 +13,6 @@ from keras.layers import Input, Dense, Activation, Reshape
 from keras.layers import Concatenate
 from keras.layers.embeddings import Embedding
 
-
 def split_features(X):
     X_list = []
     for i in range(X.shape[1]):
@@ -58,9 +57,10 @@ class NN_with_EntityEmbedding(KerasModel):
             output_embeddings.append(output)
 
         output_model = Concatenate()(output_embeddings)
-        output_model = Dense(1000, kernel_initializer="uniform")(output_model)
-        output_model = Activation('relu')(output_model)
-        output_model = Dense(500, kernel_initializer="uniform")(output_model)
+        # output_model = Dense(1000, kernel_initializer="uniform")(output_model)
+        # output_model = Activation('relu')(output_model)
+        # output_model = Dense(500, kernel_initializer="uniform")(output_model)
+        output_model = Dense(10, kernel_initializer="uniform")(output_model)
         output_model = Activation('relu')(output_model)
         if self.mode == 'classification':
             output_model = Dense(len(self.class_names))(output_model)
@@ -87,5 +87,73 @@ class NN_with_EntityEmbedding(KerasModel):
         return result
 
     def evaluate(self, X_test, y_test):
-        score = self.model.evaluate(self.preprocessing(X_test),y_test, batch_size=128)
+        # return the loss value & metric values for the model in test mode.
+        score = self.model.evaluate(self.preprocessing(X_test),y_test, batch_size=None)
         return score
+
+class NN(KerasModel):
+    def __init__(self, X_train, y_train, # X_val, y_val,
+                 categorical_features, categorical_names, class_names,
+                 epochs=10,
+                 batch_size=128,
+                 mode='classification',
+    ):
+        super().__init__()
+        self.categorical_features = categorical_features
+        self.categorical_names = categorical_names
+        self.class_names = class_names
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.mode = mode
+        self.__build_keras_model()
+        self.fit(X_train, y_train)
+
+
+    def __build_keras_model(self):
+        self.model = Sequential()
+        input_dim = len(self.categorical_features)
+        # # alternative to embedding layer
+        alternative_dim = 0
+        for col in self.categorical_features:
+            size = len(self.categorical_names[col])
+            alternative_dim += 6 * int(math.pow(size, 1/4))
+        self.model.add(Dense(alternative_dim, kernel_initializer="uniform",
+                             input_dim=input_dim))
+        self.model.add(Activation('relu'))
+        # same as nn with embedding
+        # self.model.add(Dense(1000, kernel_initializer="uniform",
+        #                      input_dim=input_dim)
+        # )
+        self.model.add(Dense(1000, kernel_initializer="uniform",))
+
+        self.model.add(Activation('relu'))
+        self.model.add(Dense(500, kernel_initializer="uniform"))
+        # self.model.add(Dense(10, kernel_initializer="uniform"))
+        self.model.add(Activation('relu'))
+
+        if self.mode == 'classification':
+            self.model.add(Dense(len(self.class_names), kernel_initializer="uniform"))
+            self.model.add(Activation('softmax'))
+        else:
+            self.model.add(Dense(1))
+            self.model.add(Activation('sigmoid'))
+
+        if self.mode == 'classification':
+            self.model.compile(loss='sparse_categorical_crossentropy', optimizer='adam', metrics=['sparse_categorical_accuracy'])
+        else:
+            self.model.compile(loss='mean_absolute_error', optimizer='adam')
+
+    def fit(self, X_train, y_train):
+        self.model.fit(X_train,
+                       y_train,
+                       epochs=self.epochs, batch_size=self.batch_size,)
+
+    def predict_proba(self, x):
+        result = self.model.predict(x)#.flatten()
+        return result
+
+    def evaluate(self, X_test, y_test):
+        # return the loss value & metric values for the model in test mode.
+        score = self.model.evaluate(X_test, y_test, batch_size=None)
+        return score
+
