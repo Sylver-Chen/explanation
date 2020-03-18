@@ -51,14 +51,28 @@ class LimeBase(object):
     def feature_selection(self, data, labels, weights, num_features, method):
         """Selects features for the model. see explain_instance_with_data to
            understand the parameters."""
-        if method == 'forward_selection':
+        if method == 'none':
+            return np.array(range(data.shape[1]))
+        elif method == 'forward_selection':
             return self.forward_selection(data, labels, weights, num_features)
+        elif method == 'highest_weights':
+            clf = Ridge(alpha=0.01, fit_intercept=True,
+                        random_state=self.random_state)
+            clf.fit(data, labels, sample_weight=weights)
+            coef = clf.coef_
+
+            weighted_data = coef * data[0]
+            feature_weights = sorted(
+                zip(range(data.shape[1]), weighted_data),
+                key=lambda x: np.abs(x[1]),
+                reverse=True)
+            return np.array([x[0] for x in feature_weights[:num_features]])
+
         elif method == 'auto':
             if num_features <= 6:
                 n_method = 'forward_selection'
             else:
-                # n_method = 'highest_weights'
-                n_method = 'forward_selection'
+                n_method = 'highest_weights'
             return self.feature_selection(data, labels, weights,
                                           num_features, n_method)
 
@@ -87,8 +101,6 @@ class LimeBase(object):
                 'highest_weights': selects the features that have the highest
                     product of absolute weight * original data point when
                     learning with all the features
-                'lasso_path': chooses features based on the lasso
-                    regularization path
                 'none': uses all features, ignores num_features
                 'auto': uses forward_selection if num_features <= 6, and
                     'highest_weights' otherwise.

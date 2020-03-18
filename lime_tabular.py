@@ -6,9 +6,11 @@ import numpy as np
 import sklearn
 import sklearn.preprocessing
 from sklearn.utils import check_random_state
+from keras.models import Model as KerasModel
 
 from explain import Explanation
 from lime_base import LimeBase
+from models import data_preprocessing, get_embedding_model
 
 class LimeTabularExplainer(object):
     def __init__(self,
@@ -28,6 +30,8 @@ class LimeTabularExplainer(object):
                  sample_around_instance=False,
                  random_state=None,
                  # training_data_stats=None,
+                 encoder=None,
+                 decoder=None,
     ):
         """
         training_data: numpy 2d array
@@ -40,6 +44,8 @@ class LimeTabularExplainer(object):
         self.mode = mode
         self.categorical_names = categorical_names or {}
         self.sample_around_instance = sample_around_instance
+        self.encoder = encoder
+        self.decoder = decoder
 
         if categorical_features is None:
             categorical_features = []
@@ -47,40 +53,47 @@ class LimeTabularExplainer(object):
             feature_names = [str(i) for i in range(training_data.shape[1])]
 
         self.categorical_features = list(categorical_features)
-        self.feature_names = list(feature_names)
 
+        self.feature_names = list(feature_names)
         self.discretizer = None
-        # self.training_data = training_data
-        # self.feature_names = feature_names
 
         if kernel_width is None:
             kernel_width = np.sqrt(training_data.shape[1]) * .75
         kernel_width = float(kernel_width)
-
         if kernel is None:
             def kernel(d, kernel_width):
                 return np.sqrt(np.exp(-(d ** 2) / kernel_width ** 2))
-
         kernel_fn = partial(kernel, kernel_width=kernel_width)
-
         self.feature_selection = feature_selection
         self.base = LimeBase(kernel_fn, verbose, random_state=self.random_state)
         self.class_names = class_names
 
-        self.scaler = sklearn.preprocessing.StandardScaler(with_mean=False)
-        self.scaler.fit(training_data)
-        self.feature_values = {}
-        self.feature_frequencies = {}
+        if self.encoder is not None:
+            # get embedding representations of training dataset.
+            # the self.scalar works in the embedding space
+            embedding_vecs = self.encoder.predict(data_preprocessing(training_data))
+            self.scaler = sklearn.preprocessing.StandardScaler(with_mean=False)
+            self.scaler.fit(embedding_vecs)
+            # used in explain_instance
+            self.scaler_original_space = sklearn.preprocessing.StandardScaler(with_mean=False)
+            self.scaler_original_space.fit(training_data)
+        else:
+            # the self.scalar works in the original space
+            self.scaler = sklearn.preprocessing.StandardScaler(with_mean=False)
+            self.scaler.fit(training_data)
+            # related to categorical features
+            self.feature_values = {}
+            self.feature_frequencies = {}
+            for feature in self.categorical_features:
+                column = training_data[:, feature]
+                feature_count = collections.Counter(column)
+                values, frequencies = map(list, zip(*(sorted(feature_count.items()))))
+                self.feature_values[feature] = values
+                self.feature_frequencies[feature] = (np.array(frequencies) /
+                                                     float(sum(frequencies)))
+                self.scaler.mean_[feature] = 0
+                self.scaler.scale_[feature] = 1
 
-        for feature in self.categorical_features:
-            column = training_data[:, feature]
-            feature_count = collections.Counter(column)
-            values, frequencies = map(list, zip(*(sorted(feature_count.items()))))
-            self.feature_values[feature] = values
-            self.feature_frequencies[feature] = (np.array(frequencies) /
-                                                 float(sum(frequencies)))
-            self.scaler.mean_[feature] = 0
-            self.scaler.scale_[feature] = 1
 
     @staticmethod
     def convert_and_round(values):
@@ -95,7 +108,7 @@ class LimeTabularExplainer(object):
             num_features=10,
             num_samples=5000,
             distance_metric='euclidean',
-            model_regressor=None
+            model_regressor=None,
     ):
         """Generates explanations for a prediction.
 
@@ -121,6 +134,15 @@ class LimeTabularExplainer(object):
             An Explanation object (see explanation.py) with the corresponding
             explanations.
         """
+
+        if self.encoder is not None:
+            # map data row to embedding space
+            embedding_vec = self.encoder.predict(data_preprocessing(data_row.reshape(1,-1)))[0]
+            # sampling and calculating distances in embedding space
+            data_row = embedding_vec
+        else:
+            pass
+
         data, inverse = self.__data_inverse(data_row, num_samples)
 
         scaled_data = (data - self.scaler.mean_) / self.scaler.scale_
@@ -129,7 +151,16 @@ class LimeTabularExplainer(object):
                 scaled_data[0].reshape(1, -1),
                 metric=distance_metric
         ).ravel()
-        yss = predict_fn(inverse)
+
+        if self.encoder is not None:
+            # map embedding vectors back to original feature space
+            # in this case, inverse is the same with data
+            original_vecs = self.decoder.predict(data)
+            # overwrite scaled_data,  should be related to original_vecs
+            scaled_data = (original_vecs - self.scaler_original_space.mean_) / self.scaler_original_space.scale_
+            yss = predict_fn(original_vecs)
+        else:
+            yss = predict_fn(inverse)
 
         # for classification, the model needs to provide a list of tuples - classes
         # along with prediction probabilities
@@ -152,9 +183,8 @@ class LimeTabularExplainer(object):
         if feature_names is None:
             feature_names = [str(x) for x in range(data_row.shape[0])]
 
-        values = self.convert_and_round(data_row)
-        feature_indexes = None
-
+        # values = self.convert_and_round(data_row)
+        # feature_indexes = None
         # for i in self.categorical_features:
         #     name = int(data_row[i])
         #     if i in self.categorical_names:
@@ -186,7 +216,7 @@ class LimeTabularExplainer(object):
                     scaled_data,
                     yss,
                     distances,
-                    label,
+                    label, # single number
                     num_features,
                     model_regressor=model_regressor,
                     feature_selection=self.feature_selection)
@@ -198,10 +228,13 @@ class LimeTabularExplainer(object):
                        data_row,
                        num_samples):
         """Generates a neighborhood around a prediction.
-        only numerical features for now!
         For numerical features, perturb them by sampling from a Normal(0,1) and
         doing the inverse operation of mean-centering and scaling, according to
         the means and stds in the training data.
+        For categorical features,
+        perturb by sampling according to the training distribution, and making
+        a binary feature that is 1 when the value is the same as the instance
+        being explained.
         Args:
             data_row: 1d numpy array, corresponding to a row
             num_samples: size of the neighborhood to learn the linear model
@@ -222,26 +255,29 @@ class LimeTabularExplainer(object):
             0, 1, num_samples * num_cols).reshape(
                 num_samples, num_cols
             )
-        # sample around instance
-        data = data * scale + instance_sample
+        if self.sample_around_instance:
+            # sample around instance
+            data = data * scale + instance_sample
+        else:
+            data = data * scale + mean
 
-        categorical_features = self.categorical_features
         first_row = data_row
-
         data[0] = data_row.copy()
         inverse = data.copy()
 
-        for column in categorical_features:
-            values = self.feature_values[column]
-            freqs = self.feature_frequencies[column]
-            inverse_column = self.random_state.choice(values, size=num_samples,
-                                                      replace=True, p=freqs)
-            binary_column = (inverse_column == first_row[column]).astype(int)
-            binary_column[0] = 1
-            inverse_column[0] = data[0, column]
-            data[:, column] = binary_column
-            inverse[:, column] = inverse_column
+        if self.encoder is None:
+            for column in self.categorical_features:
+                values = self.feature_values[column]
+                freqs = self.feature_frequencies[column]
+                inverse_column = self.random_state.choice(values, size=num_samples,
+                                                          replace=True, p=freqs)
+                binary_column = (inverse_column == first_row[column]).astype(int)
+                binary_column[0] = 1
+                inverse_column[0] = data[0, column]
+                data[:, column] = binary_column
+                inverse[:, column] = inverse_column
 
         inverse[0] = data_row
 
         return data, inverse
+
