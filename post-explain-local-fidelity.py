@@ -15,7 +15,7 @@ filtered_tasks_ids = [3, 20, 24, 41, 45, 49, 3492, 3493, 3494, 3560, 34537, 3453
 j = 0
 
 # Google Colab
-log_file = '/content/drive/My Drive/myenv/logs/rf_local_fidelity_'+str(j)
+log_file = '/content/drive/My Drive/myenv/logs/local_fidelity_'+str(j)
 model_path = '/content/drive/My Drive/myenv/trained_models/'
 
 # # Baidu AI Studio
@@ -23,14 +23,15 @@ model_path = '/content/drive/My Drive/myenv/trained_models/'
 # model_path = ''
 
 # # Local Host
-# log_file = 'logs/local_fidelity_'+str(j)
+# log_file = 'logs/rf_local_fidelity_'+str(j)
 # model_path = 'trained_models/'
+
 logger = CSVLogger(name='mylogger', log_file=log_file, level='info')
-num_samples_iter = list(range(1000, 5500, 500))
+num_samples_iter = list(range(500, 5500, 500))
 epochs = 20
 batch_size = 128
 num_hidden = 500
-blackbox = 'rf'  # 'nn'
+blackbox = 'nn'  # 'rf'
 
 strategy_list, taskid_list, runid_list, num_samples_list, score_r2_list, score_mse_list, score_mae_list, score_evc_list = [], [], [], [], [], [], [], []
 
@@ -60,11 +61,12 @@ else:
 
     rf = RandomForestClassifier(n_estimators=100)
     rf.fit(encoded_X_train, y_train_str)
-    predict_fn = lambda x: rf.predict_proba(encoder.transform(x))
+    predict_fn = lambda x: rf.predict_proba(encoder_X.transform(x))
 
 # (1) post explaination with nn embedding
 # encoder and decoder
 strategy = 'with embedding'
+
 # encoder_weight_path = 'logs/encoder_model_weight.h5'
 # encoder_architecture_path = 'logs/encoder_model_architecture.json'
 # decoder_weight_path = 'logs/decoder_model_weight.h5'
@@ -145,71 +147,71 @@ for num_samples in num_samples_iter:
     score_mae_list.append(score_mae)
     score_evc_list.append(score_evc)
 
-# (2) post explaination without nn embedding
-strategy = 'without embedding'
-explainer = LimeTabularExplainer(X_train,
-                                 class_names=class_names,
-                                 feature_names=feature_names,
-                                 categorical_features=categorical_features,
-                                 categorical_names=categorical_names,
-                                 kernel_width=3,
-                                 verbose=False,
-                                 sample_around_instance=True,
-                                 # discretize_continuous=False,
-)
+# # (2) post explaination without nn embedding
+# strategy = 'without embedding'
+# explainer = LimeTabularExplainer(X_train,
+#                                  class_names=class_names,
+#                                  feature_names=feature_names,
+#                                  categorical_features=categorical_features,
+#                                  categorical_names=categorical_names,
+#                                  kernel_width=3,
+#                                  verbose=False,
+#                                  sample_around_instance=True,
+#                                  # discretize_continuous=False,
+# )
 
-print("===== strategy: ", strategy)
+# print("===== strategy: ", strategy)
 
-for num_samples in num_samples_iter:
-    print("++++++++++++++++++++++++++++++++++++++++++++++++")
-    print("+++ num_samples: ", num_samples)
-    print("++++++++++++++++++++++++++++++++++++++++++++++++")
+# for num_samples in num_samples_iter:
+#     print("++++++++++++++++++++++++++++++++++++++++++++++++")
+#     print("+++ num_samples: ", num_samples)
+#     print("++++++++++++++++++++++++++++++++++++++++++++++++")
 
-    # different number of sample points
-    # right means the prediction made by blackbox
-    right_prob = []
-    # fit means the prediction made by linear model
-    fit_prob = []
-    # print("testing set size:  ", X_test.shape[0])
-    for i in range(X_test.shape[0]):
-        # print(str(i+1)+"th test instance")
-        # change num_samples
-        exp = explainer.explain_instance(X_test[i],
-                                         predict_fn,
-                                         num_features=2,
-                                         num_samples=num_samples,
-                                         top_labels=1,
-        )
-        right_prob.append(exp.right)
-        fit_prob.append(exp.local_pred)
+#     # different number of sample points
+#     # right means the prediction made by blackbox
+#     right_prob = []
+#     # fit means the prediction made by linear model
+#     fit_prob = []
+#     # print("testing set size:  ", X_test.shape[0])
+#     for i in range(X_test.shape[0]):
+#         # print(str(i+1)+"th test instance")
+#         # change num_samples
+#         exp = explainer.explain_instance(X_test[i],
+#                                          predict_fn,
+#                                          num_features=2,
+#                                          num_samples=num_samples,
+#                                          top_labels=1,
+#         )
+#         right_prob.append(exp.right)
+#         fit_prob.append(exp.local_pred)
 
-    # calculate results
-    score_r2 = r2_score(right_prob, fit_prob)
-    score_mse = mean_squared_error(right_prob, fit_prob)
-    score_mae = mean_absolute_error(right_prob, fit_prob)
-    score_evc = explained_variance_score(right_prob, fit_prob)
+#     # calculate results
+#     score_r2 = r2_score(right_prob, fit_prob)
+#     score_mse = mean_squared_error(right_prob, fit_prob)
+#     score_mae = mean_absolute_error(right_prob, fit_prob)
+#     score_evc = explained_variance_score(right_prob, fit_prob)
 
-    print('R2: ', score_r2)
-    print('Mean Squared Error: ', score_mse)
-    print('Mean Absolute Error: ', score_mae)
-    print('Explain Variance Score: ', score_evc)
-    logger.log_local_fidelity(strategy, taskid, runid, num_samples, score_r2, score_mse, score_mae, score_evc)
-    strategy_list.append(strategy)
-    taskid_list.append(taskid)
-    runid_list.append(runid)
-    num_samples_list.append(num_samples)
-    score_r2_list.append(score_r2)
-    score_mse_list.append(score_mse)
-    score_mae_list.append(score_mae)
-    score_evc_list.append(score_evc)
+#     print('R2: ', score_r2)
+#     print('Mean Squared Error: ', score_mse)
+#     print('Mean Absolute Error: ', score_mae)
+#     print('Explain Variance Score: ', score_evc)
+#     logger.log_local_fidelity(strategy, taskid, runid, num_samples, score_r2, score_mse, score_mae, score_evc)
+#     strategy_list.append(strategy)
+#     taskid_list.append(taskid)
+#     runid_list.append(runid)
+#     num_samples_list.append(num_samples)
+#     score_r2_list.append(score_r2)
+#     score_mse_list.append(score_mse)
+#     score_mae_list.append(score_mae)
+#     score_evc_list.append(score_evc)
 
 
-print("num_samples: ", num_samples)
-print("strategy_list: ", strategy_list)
-print("taskid_list: ", taskid_list)
-print("runid_list: ", runid_list)
-print("num_samples_list: ", num_samples_list)
-print("score_r2_list: ", score_r2_list)
-print("score_mse_list: ", score_mse_list)
-print("score_mae_list: ", score_mae_list)
-print("score_evc_list: ", score_evc_list)
+# print("num_samples: ", num_samples)
+# print("strategy_list: ", strategy_list)
+# print("taskid_list: ", taskid_list)
+# print("runid_list: ", runid_list)
+# print("num_samples_list: ", num_samples_list)
+# print("score_r2_list: ", score_r2_list)
+# print("score_mse_list: ", score_mse_list)
+# print("score_mae_list: ", score_mae_list)
+# print("score_evc_list: ", score_evc_list)
