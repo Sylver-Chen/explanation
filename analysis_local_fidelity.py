@@ -10,17 +10,17 @@ j = 6
 blackbox = 'rf'
 title = ''
 if j == 0:
-    title = 'task id: 3, dataset name: kr-vs-kp'
+    title = 'dataset name: kr-vs-kp'
 elif j == 1:
-    title = 'task id: 20, dataset name: mfeat-pixel'
+    title = 'dataset name: mfeat-pixel'
 elif j == 3:
-    title = 'task id: 41, dataset name: soybean'
+    title = 'dataset name: soybean'
 elif j == 4:
-    title = 'task id: 45, dataset name: splice'
+    title = 'dataset name: splice'
 elif j == 5:
-    title = 'task id: 49, dataset name: tic-tac-toe'
+    title = 'dataset name: tic-tac-toe'
 elif j == 6:
-    title = 'task id: 3492, dataset name: monks-problems-1'
+    title = 'dataset name: monks-problems-1'
 
 
 filtered_tasks_ids = [3, 20, 24, 41, 45, 49, 3492, 3493, 3494, 3560, 34537, 34539, 146195]
