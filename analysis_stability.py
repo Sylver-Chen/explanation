@@ -5,7 +5,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 filtered_tasks_ids = [3, 20, 24, 41, 45, 49, 3492, 3493, 3494, 3560, 34537, 34539, 146195]
-j = 0
+j = 12
 
 # get original logs
 strategy_list, taskid_list, repeatid_list, num_samples_list, featureid_list, coef_list = [], [], [], [], [], []

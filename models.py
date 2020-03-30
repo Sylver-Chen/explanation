@@ -17,12 +17,19 @@ def split_features(X):
         X_list.append(X[..., [i]])
     return X_list
 
-def data_preprocessing(X):
-    X_list = split_features(X)
-    return X_list
+def data_preprocessing(X, embedding_type):
+    if embedding_type == 'entity':
+        X_list = split_features(X)
+        return X_list
+    elif embedding_type == 'mlp':
+        return X
+    elif embedding_type == '':
+        return X
+    else:
+        print("embedding type error!")
 
 def predict_proba(model, x):
-    x = data_preprocessing(x)
+    x = data_preprocessing(x, 'entity')
     result = model.predict(x)#.flatten()
     return result
 
@@ -38,16 +45,15 @@ def get_embedding_model(model):
                                           outputs=model.get_layer(previous_layer_name).output)
     return embedding_model
 
-def get_remaining_model(model):
+def get_separate_models(model):
     """
     embedding layer to ouput layer.
     """
     # hard coded now
-    layer_name = 'fully-connected-1'
+    layer_name = 'fully-connected'
     previous_layer_name = 'embedding'
     # first part model
-    first_model = KerasModel(inputs=model.input,
-                                          outputs=model.get_layer(previous_layer_name).output)
+    first_model = KerasModel(inputs=model.input, outputs=model.get_layer(previous_layer_name).output)
 
     # second part model
     layer_names = [layer.name for layer in model.layers]
@@ -61,18 +67,18 @@ def get_remaining_model(model):
         x = layer(x)
     remaining_model = KerasModel(new_input, x)
 
-    return remaining_model
+    return first_model, remaining_model
 
-def get_encoder_and_decoder(model, training_data, num_hidden,
-                            epochs=50, batch_size=128):
+def get_encoder_and_decoder(model, training_data, num_hidden, embedding_type,
+                            epochs=50, batch_size=128,
+                            ):
     # hard coded now
     layer_name = 'fully-connected-1'
     previous_layer_name = 'embedding'
     # encoder
     encoder = KerasModel(inputs=model.input, outputs=model.get_layer(previous_layer_name).output)
     # get the input for decoder
-    embedding_vectors = encoder.predict(data_preprocessing(training_data))
-
+    embedding_vectors = encoder.predict(data_preprocessing(training_data, embedding_type))
     # decoder
     layer_names = [layer.name for layer in model.layers]
     layer_idx = layer_names.index(layer_name)
@@ -80,9 +86,13 @@ def get_encoder_and_decoder(model, training_data, num_hidden,
     input_shape = model.layers[layer_idx].get_input_shape_at(0)
     new_input = Input(shape=(input_shape[1],))
 
-    output_model = Dense(num_hidden, kernel_initializer="uniform", activation='relu',
+    output_model = Dense(num_hidden, kernel_initializer="uniform",
+                         activation='relu',
                          name='fully-connected')(new_input)
-    output_model = Dense(len(model.input), activation='relu',
+    output_dim = training_data.shape[1]
+    if embedding_type == 'entity':
+        output_dim = len(model.input)
+    output_model = Dense(output_dim, activation='relu',
                          name='output')(output_model)
     decoder = KerasModel(inputs=new_input, outputs=output_model)
     # train decoder
@@ -94,10 +104,38 @@ def get_encoder_and_decoder(model, training_data, num_hidden,
     )
     return encoder, decoder
 
+def get_autoencoder(categorical_features, categorical_names,
+                    training_data, num_hidden, embedding_type, epochs=50, batch_size=128,):
+    embedding_dim = 0
+    for col in categorical_features:
+        dim = len(categorical_names[col])
+        embedding_dim += 6 * int(math.pow(dim, 1/4))
+
+    input = Input(shape=(len(categorical_features),))
+    encoded = Dense(embedding_dim,
+                    activation='relu',
+                    name='embedding')(input)
+    decoded = Dense(num_hidden, kernel_initializer="uniform",
+                    activation='relu',
+                    name='fully-connected')(encoded)
+    decoded = Dense(training_data.shape[1], activation='relu',
+                    name='output')(decoded)
+    autoencoder = KerasModel(input, decoded)
+    autoencoder.compile(loss='mean_squared_error', optimizer='adam',
+                        metrics = ['accuracy']
+    )
+    autoencoder.fit(training_data, training_data,
+                    epochs=epochs, batch_size=batch_size
+    )
+
+    encoder, decoder = get_separate_models(autoencoder)
+    return encoder, decoder
+
 
 class NN_with_EntityEmbedding(KerasModel):
     def __init__(self, X_train, y_train, # X_val, y_val,
                  categorical_features, categorical_names, class_names,
+                 embedding_type,
                  epochs=10,
                  batch_size=128,
                  mode='classification',
@@ -110,24 +148,38 @@ class NN_with_EntityEmbedding(KerasModel):
         self.epochs = epochs
         self.batch_size = batch_size
         self.mode = mode
+        self.embedding_type = embedding_type
         self.__build_keras_model()
         self.fit(X_train, y_train)
 
     def __build_keras_model(self):
-        input_model, output_embeddings = [], []
-        for col in self.categorical_features:
-            # determine number of different values of each column
-            input_dim = len(self.categorical_names[col])
-            # empirical [2017, Wang]
-            output_dim = 6 * int(math.pow(input_dim, 1/4))
-            input = Input(shape=(1,))
-            output = Embedding(input_dim, output_dim, name='embedding_'+str(col))(input)
-            output = Reshape(target_shape=(output_dim, ))(output)
+        if self.embedding_type == 'entity':
+            input_model, output_embeddings = [], []
+            for col in self.categorical_features:
+                # determine number of different values of each column
+                input_dim = len(self.categorical_names[col])
+                # empirical [2017, Wang]
+                output_dim = 6 * int(math.pow(input_dim, 1/4))
+                input = Input(shape=(1,))
+                output = Embedding(input_dim, output_dim, name='embedding_'+str(col))(input)
+                output = Reshape(target_shape=(output_dim, ))(output)
 
-            input_model.append(input)
-            output_embeddings.append(output)
+                input_model.append(input)
+                output_embeddings.append(output)
 
-        output_model = Concatenate(name='embedding')(output_embeddings)
+            output_model = Concatenate(name='embedding')(output_embeddings)
+        elif self.embedding_type == 'mlp':
+            output_dim = 0
+            for col in self.categorical_features:
+                input_dim = len(self.categorical_names[col])
+                output_dim += 6 * int(math.pow(input_dim, 1/4))
+            input_model = Input(shape=(len(self.categorical_features),))
+            output_model = Dense(output_dim,
+                                 activation='relu',
+                                 name='embedding')(input_model)
+        else:
+            print("embedding type error")
+
         output_model = Dense(1000, kernel_initializer="uniform", name='fully-connected-1')(output_model)
         output_model = Activation('relu')(output_model)
         output_model = Dense(500, kernel_initializer="uniform", name='fully-connected-2')(output_model)
@@ -148,18 +200,19 @@ class NN_with_EntityEmbedding(KerasModel):
             self.model.compile(loss='mean_absolute_error', optimizer='adam')
 
     def fit(self, X_train, y_train):
-        self.model.fit(data_preprocessing(X_train),
+        self.model.fit(data_preprocessing(X_train, self.embedding_type),
                        y_train,
                        epochs=self.epochs, batch_size=self.batch_size,)
 
-    def predict_proba(self, x):
-        x = data_preprocessing(x)
-        result = self.model.predict(x)#.flatten()
-        return result
+    # def predict_proba(self, x):
+    #     x = data_preprocessing(x)
+    #     result = self.model.predict(x)#.flatten()
+    #     return result
 
     def evaluate(self, X_test, y_test):
         # return the loss value & metric values for the model in test mode.
-        score = self.model.evaluate(data_preprocessing(X_test),y_test, batch_size=None)
+        score = self.model.evaluate(data_preprocessing(X_test, self.embedding_type),
+                                    y_test, batch_size=None)
         return score
 
 

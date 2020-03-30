@@ -13,7 +13,9 @@ for i in range(6):
             ml_list.append(row['ml'])
             taskid_list.append(int(row['taskid']))
             runid_list.append(int(row['runid']))
-            score_list.append(round(float(row['score']), 4))
+            score = round(float(row['score']), 4)
+            score *= 100
+            score_list.append(score)
 
 dict_res = {
     'ml': ml_list,
@@ -37,9 +39,9 @@ std_random_forest = df_random_forest.groupby(['taskid'])['score'].std()
 
 dict_stats = {
     'taskid': filtered_tasks_ids,
-    'nn_emb_mean': list(mean_nn_with_embedding.round(4)),
-    'nn_mean': list(mean_nn.round(4)),
-    'rf_mean': list(mean_random_forest.round(4)),
+    'nn_emb_mean': list(mean_nn_with_embedding.round(2)),
+    'nn_mean': list(mean_nn.round(2)),
+    'rf_mean': list(mean_random_forest.round(2)),
     'nn_emb_std': list(std_nn_with_embedding.round(4)),
     'nn_std': list(std_nn.round(4)),
     'rf_std': list(std_random_forest.round(4)),

@@ -32,6 +32,7 @@ class LimeTabularExplainer(object):
                  # training_data_stats=None,
                  encoder=None,
                  decoder=None,
+                 embedding_type='',
     ):
         """
         training_data: numpy 2d array
@@ -46,6 +47,7 @@ class LimeTabularExplainer(object):
         self.sample_around_instance = sample_around_instance
         self.encoder = encoder
         self.decoder = decoder
+        self.embedding_type = embedding_type
 
         if categorical_features is None:
             categorical_features = []
@@ -71,7 +73,8 @@ class LimeTabularExplainer(object):
         if self.encoder is not None:
             # get embedding representations of training dataset.
             # the self.scalar works in the embedding space
-            embedding_vecs = self.encoder.predict(data_preprocessing(training_data))
+            embedding_vecs = self.encoder.predict(data_preprocessing(training_data, self.embedding_type))
+
             self.scaler = sklearn.preprocessing.StandardScaler(with_mean=False)
             self.scaler.fit(embedding_vecs)
             # used in explain_instance
@@ -137,7 +140,7 @@ class LimeTabularExplainer(object):
 
         if self.encoder is not None:
             # map data row to embedding space
-            embedding_vec = self.encoder.predict(data_preprocessing(data_row.reshape(1,-1)))[0]
+            embedding_vec = self.encoder.predict(data_preprocessing(data_row.reshape(1,-1), self.embedding_type))[0]
             # sampling and calculating distances in embedding space
             data_row = embedding_vec
         else:

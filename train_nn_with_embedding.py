@@ -11,6 +11,12 @@ run_id = 0
 filtered_tasks_ids = [3, 20, 24, 41, 45, 49, 3492, 3493, 3494, 3560, 34537, 34539, 146195]
 epochs = 50
 batch_size = 128
+embedding_type = 'mlp' # 'entity'
+# Google Colab
+path = '/content/drive/My Drive/myenv/trained_models_with_mlp_embedding/'
+
+# # Local Host
+# path = 'trained_models_without_entity_embedding/'
 
 for j in range(len(filtered_tasks_ids)):
     print("++++++++++++++++++++++++++++++++++++++++++++++++")
@@ -26,14 +32,15 @@ for j in range(len(filtered_tasks_ids)):
                                                 categorical_features,
                                                 categorical_names,
                                                 class_names,
+                                                embedding_type,
                                                 epochs=epochs,
                                                 batch_size=batch_size,
     )
     nn_with_embedding_loss, nn_with_embedding_score = nn_with_embedding.evaluate(X_test, y_test_int)
     print("nn_with_embedding prediction score: ", str(nn_with_embedding_score))
 
-    weight_path = '/content/drive/My Drive/myenv/model_weight_'+str(j)+'.h5'
-    architecture_path = '/content/drive/My Drive/myenv/model_architecture_'+str(j)+'.json'
+    weight_path = path + 'model_weight_'+str(j)+'.h5'
+    architecture_path = path + 'model_architecture_'+str(j)+'.json'
 
     # Save the weights
     nn_with_embedding.model.save_weights(weight_path)
